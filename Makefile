@@ -4,18 +4,18 @@
 #
 
 TARGET = vsjpeg.x
+VERSION = 012
+DATE = 98-09-28
+TIME = 12:00:00
 
 #libjpegがインストールされているパス
 JLIBPATH = a:/develop/jpeg/jpeg-6b
 
 CC = gcc
 CFLAGS = -m68000 -O -I$(JLIBPATH)
-#CFLAGS = -m68000 -O -I$(JLIBPATH) -g
 真里子=AB
 GCC_OPTION = WLFIO+
 #GCC_OPTION = WO+
-AS = has060
-ASFLAGS = -u
 LD = gcc
 LDFLAGS = 
 HLK = -x
@@ -24,8 +24,8 @@ HLK = -x
 
 all: $(TARGET)
 
-$(TARGET): vsjpeg.o
-	$(LD) $(LDFLAGS) $^ $(JLIBPATH)/libjpeg.a -ldos -o $@
+$(TARGET): vsjpeg.o $(JLIBPATH)/libjpeg.a
+	$(LD) $(LDFLAGS) $^ -ldos -o $@
 
 vsjpeg.c: redtbl.inc greentbl.inc bluetbl.inc
 
@@ -36,16 +36,20 @@ greentbl.inc: gentable.x
 bluetbl.inc: gentable.x
 	$< b > $@
 
+ARCFILES = Makefile webx.bfd webxsrc.bfd gentable.c vsjpeg.c \
+		history.doc vsjpeg.doc vsjpg$(VERSION).hed $(TARGET)
+arc:
+	$(MAKE) bfd
+	touch -d$(DATE) -t$(TIME) $(ARCFILES)
+	-rm vsjpg$(VERSION).Lzh
+	lha a -t vsjpg$(VERSION).Lzh $(ARCFILES)
+
 bfd:
 	-rm webx.bfd
+	strip WebXpression.x
+	touch -d$(DATE) -t$(TIME) WebXpression.x
 	hbdiff orig/WebXpression.x WebXpression.x webx.bfd
 	-rm webxsrc.bfd
+	touch -d$(DATE) -t$(TIME) Image.c
 	hbdiff -S orig/Image.c Image.c webxsrc.bfd
-
-ARCFILES = Makefile webx.bfd webxsrc.bfd gentable.c vsjpeg.c \
-		vsjpeg.doc vsjpeg.hed $(TARGET)
-arc:
-	touch -d98-09-20 -t12:00:00 $(ARCFILES)
-	rm vsjpg010.Lzh
-	lha a -t vsjpg010.Lzh $(ARCFILES)
 

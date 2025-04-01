@@ -22,7 +22,7 @@ typedef struct {
 static void usage( void )
 {
 	fprintf( stderr,
-		"JPEGローダ vsjpeg.x v0.10 Copyright 1998 Igarashi\n"
+		"JPEGローダ vsjpeg.x v0.12 Copyright 1998 Igarashi\n"
 		"usage:\tvsjpeg [option] filename\n"
 		"\t-L[x1,y1,[x2,y2]]\t画面に展開・表示（デフォルト）\n"
 		"\t-VS$address\t\t指定のメモリに展開\n"
@@ -70,7 +70,10 @@ static int chkarg( arginfo *arginfo, int argc, char *argv[] )
 					ret = FALSE;
 					break;
 				}
-				if ( sscanf( &arg[1], "%d,%d,%d,%d",
+				if ( arg[1] == '\0' ) {
+					x2 = arginfo->lwidth;
+					y2 = arginfo->lheight;
+				} else if ( sscanf( &arg[1], "%d,%d,%d,%d",
 						&arginfo->x1, &arginfo->y1, &x2, &y2 ) == 4 ) {
 					;
 				} else if ( sscanf( &arg[1], "%d,%d",
@@ -201,19 +204,24 @@ static void trans_to_vram( j_decompress_ptr cinfo, arginfo *arginfo, JSAMPROW li
 		if ( arginfo->y1 > 0 )
 			dest += arginfo->y1 * VRAM_WIDTH;
 
-		while ( cinfo->output_scanline < limit_y - arginfo->y1 ) {
-			int	i;
-			curdest = dest;
-			jpeg_read_scanlines( cinfo, &linbuf, 1 );		/* 横１ライン展開 */
-			curbuf = linbuftop;
-			for ( i = start_x; i < limit_x; i++ ) {
-				*curdest++ = greentbl[curbuf[RGB_GREEN]]	/* RGB合成      */
-							| redtbl[curbuf[RGB_RED]]		/* テーブルから */
-							| bluetbl[curbuf[RGB_BLUE]];	/* 拾ってくる   */
-				curbuf += RGB_PIXELSIZE;
+		{
+			unsigned short	*rp = redtbl, *gp = greentbl, *bp = bluetbl;
+			while ( cinfo->output_scanline < limit_y - arginfo->y1 ) {
+				int	i;
+				jpeg_read_scanlines( cinfo, &linbuf, 1 );		/* 横１ライン展開 */
+				curdest = dest;
+				curbuf = linbuftop;
+				i = limit_x - start_x;
+				while ( i-- ) {
+					unsigned short	dat;
+					dat = rp[*curbuf++];					/* RGB合成      */
+					dat |= gp[*curbuf++];					/* テーブルから */
+					*curdest++ = bp[*curbuf++] | dat;		/* 拾ってくる   */
+				}
+				dest += VRAM_WIDTH;
 			}
-			dest += VRAM_WIDTH;
 		}
+
 		_dos_super( ssp );		/* ユーザーモードへ */
 	}
 	/* クリップ範囲外を展開（転送はしない） */
@@ -229,20 +237,34 @@ static void trans_to_vram( j_decompress_ptr cinfo, arginfo *arginfo, JSAMPROW li
 static void trans_to_vsmem( j_decompress_ptr cinfo, arginfo *arginfo, JSAMPROW linbuf )
 {
 	JSAMPROW	curbuf;
-	unsigned short	*dest;
+	JDIMENSION	width, height;
+	unsigned short	*dest, *rp, *gp, *bp;
 
 	dest = arginfo->vsmem;
+	rp = redtbl;
+	gp = greentbl;
+	bp = bluetbl;
 
-	while ( cinfo->output_scanline < cinfo->output_height ) {
+	/* 縮小する場合に端数が切り上げられるようなので（libjpegの仕様？）、 */
+	/* vsjpeg側で必要な量だけ転送する                                    */
+	width = cinfo->image_width / arginfo->scale;
+	height = cinfo->image_height / arginfo->scale;
+
+	while ( cinfo->output_scanline < height ) {
 		int	i;
 		jpeg_read_scanlines( cinfo, &linbuf, 1 );		/* 横１ライン展開 */
 		curbuf = linbuf;
-		for ( i = 0; i < cinfo->output_width; i++) {
-			*dest++ = greentbl[curbuf[RGB_GREEN]]		/* RGB合成      */
-						| redtbl[curbuf[RGB_RED]]		/* テーブルから */
-						| bluetbl[curbuf[RGB_BLUE]];	/* 拾ってくる   */
-			curbuf += RGB_PIXELSIZE;
+		i = width;
+		while ( i-- ) {
+			unsigned short	dat;
+			dat = rp[*curbuf++];				/* RGB合成      */
+			dat |= gp[*curbuf++];				/* テーブルから */
+			*dest++ = bp[*curbuf++] | dat;		/* 拾ってくる   */
 		}
+	}
+	/* 端数を展開 */
+	while ( cinfo->output_scanline < cinfo->output_height ) {
+		jpeg_read_scanlines( cinfo, &linbuf, 1 );		/* 横１ライン展開 */
 	}
 }
 
@@ -258,20 +280,19 @@ int main( int argc, char *argv[] )
 	if ( chkarg( &arginfo, argc, argv ) != FALSE ) {
 		if (( infile = fopen( argv[arginfo.fileidx], READ_BINARY )) != NULL ) {
 			cinfo.err = jpeg_std_error( &jerr );
+			cinfo.err->trace_level = 0;
 			jpeg_create_decompress( &cinfo );
 
 			jpeg_stdio_src( &cinfo, infile );	/*  */
+			jpeg_read_header( &cinfo, TRUE );	/* ヘッダを読む */
 
-			cinfo.err->trace_level = 0;
-			jpeg_read_header( &cinfo, TRUE );		/* ヘッダを読む */
-			cinfo.dct_method = JDCT_FASTEST;		/* DCT最高速 */
-			cinfo.dither_mode = JDITHER_ORDERED;	/* オーダードディザ */
-			cinfo.do_fancy_upsampling = FALSE;		/* fancy upsampling抑止 */
+			cinfo.dct_method = JDCT_FASTEST;	/* DCT最高速 */
+			cinfo.do_fancy_upsampling = FALSE;	/* fancy upsampling抑止 */
 
-			cinfo.scale_denom = arginfo.scale;
+			cinfo.scale_denom = arginfo.scale;	/* スケーリング設定 */
 
 			jpeg_start_decompress( &cinfo );	/* 展開スタート */
-
+												/* まずこれが遅い */
 			/* 横１ライン分のバッファを確保 */
 			if (( linbuf = malloc( cinfo.output_width * RGB_PIXELSIZE )) != NULL ) {
 				if ( NO_VSMEM( &arginfo ))
