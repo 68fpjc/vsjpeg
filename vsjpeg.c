@@ -1,7 +1,15 @@
-/*
+/*======================================================================
 	vsjpeg.c
-			Written by Igarashi
-*/
+			Copyright 1998, 2001 Igarashi
+======================================================================*/
+/*======================================================================
+　本ファイルの著作権は作者（いがらし）に属しますが、利用者の常識と責任の
+範囲において、自由に使用 / 複製 / 配付 / 改造することができます。その際、
+許諾を求める必要もなければ、ロイヤリティの類も一切必要ありません。
+
+　本ファイルは無保証です。本ファイルを使用した結果について、作者は一切の
+責任を負わないものとします。
+======================================================================*/
 
 #include	<stdio.h>
 #include	<stdlib.h>
@@ -22,7 +30,7 @@ typedef struct {
 static void usage( void )
 {
 	fprintf( stderr,
-		"JPEGローダ vsjpeg.x v0.12 Copyright 1998 Igarashi\n"
+		"JPEGローダ vsjpeg.x version 0.15 Copyright 1998, 2001 Igarashi\n"
 		"usage:\tvsjpeg [option] filename\n"
 		"\t-L[x1,y1,[x2,y2]]\t画面に展開・表示（デフォルト）\n"
 		"\t-VS$address\t\t指定のメモリに展開\n"
@@ -204,26 +212,48 @@ static void trans_to_vram( j_decompress_ptr cinfo, arginfo *arginfo, JSAMPROW li
 		if ( arginfo->y1 > 0 )
 			dest += arginfo->y1 * VRAM_WIDTH;
 
-		{
-			unsigned short	*rp = redtbl, *gp = greentbl, *bp = bluetbl;
-			while ( cinfo->output_scanline < limit_y - arginfo->y1 ) {
-				int	i;
-				jpeg_read_scanlines( cinfo, &linbuf, 1 );		/* 横１ライン展開 */
-				curdest = dest;
-				curbuf = linbuftop;
-				i = limit_x - start_x;
-				while ( i-- ) {
-					unsigned short	dat;
-					dat = rp[*curbuf++];					/* RGB合成      */
-					dat |= gp[*curbuf++];					/* テーブルから */
-					*curdest++ = bp[*curbuf++] | dat;		/* 拾ってくる   */
+#undef	PREPARE
+#define	PREPARE																\
+	({																		\
+		jpeg_read_scanlines( cinfo, &linbuf, 1 );	/* 横１ライン展開 */	\
+		curdest = dest;														\
+		curbuf = linbuftop;													\
+		i = limit_x - start_x;												\
+	})
+		switch ( cinfo->out_color_space ) {
+			case JCS_GRAYSCALE:	/* グレイスケール（モノクロ）	*/
+				while ( cinfo->output_scanline < limit_y - arginfo->y1 ) {
+					int	i;
+					PREPARE;
+					while ( i-- ) {
+						unsigned short	dat;
+						dat = redtbl[*curbuf];						/* RGB合成      */
+						dat |= greentbl[*curbuf];					/* テーブルから */
+						*curdest++ = bluetbl[*curbuf++] | dat;		/* 拾ってくる   */
+					}
+					dest += VRAM_WIDTH;
 				}
-				dest += VRAM_WIDTH;
-			}
+				break;
+			case JCS_RGB:	/* RGB	*/
+				while ( cinfo->output_scanline < limit_y - arginfo->y1 ) {
+					int	i;
+					PREPARE;
+					while ( i-- ) {
+						unsigned short	dat;
+						dat = redtbl[*curbuf++];					/* RGB合成      */
+						dat |= greentbl[*curbuf++];					/* テーブルから */
+						*curdest++ = bluetbl[*curbuf++] | dat;		/* 拾ってくる   */
+					}
+					dest += VRAM_WIDTH;
+				}
+				break;
+			default:
+				break;
 		}
 
 		_dos_super( ssp );		/* ユーザーモードへ */
 	}
+#if 0
 	/* クリップ範囲外を展開（転送はしない） */
 	/* 空読みしないとアボートしてしまう？ */
 	{
@@ -232,6 +262,7 @@ static void trans_to_vram( j_decompress_ptr cinfo, arginfo *arginfo, JSAMPROW li
 			jpeg_read_scanlines( cinfo, &linbuf, 1 );		/* 横１ライン展開 */
 		}
 	}
+#endif
 }
 
 static void trans_to_vsmem( j_decompress_ptr cinfo, arginfo *arginfo, JSAMPROW linbuf )
@@ -250,17 +281,40 @@ static void trans_to_vsmem( j_decompress_ptr cinfo, arginfo *arginfo, JSAMPROW l
 	width = cinfo->image_width / arginfo->scale;
 	height = cinfo->image_height / arginfo->scale;
 
-	while ( cinfo->output_scanline < height ) {
-		int	i;
-		jpeg_read_scanlines( cinfo, &linbuf, 1 );		/* 横１ライン展開 */
-		curbuf = linbuf;
-		i = width;
-		while ( i-- ) {
-			unsigned short	dat;
-			dat = rp[*curbuf++];				/* RGB合成      */
-			dat |= gp[*curbuf++];				/* テーブルから */
-			*dest++ = bp[*curbuf++] | dat;		/* 拾ってくる   */
-		}
+#undef	PREPARE
+#define	PREPARE																\
+	({																		\
+		jpeg_read_scanlines( cinfo, &linbuf, 1 );	/* 横１ライン展開 */	\
+		curbuf = linbuf;													\
+		i = width;															\
+	})
+	switch ( cinfo->out_color_space ) {
+		case JCS_GRAYSCALE:	/* グレイスケール（モノクロ）	*/
+			while ( cinfo->output_scanline < height ) {
+				int	i;
+				PREPARE;
+				while ( i-- ) {
+					unsigned short	dat;
+					dat = rp[*curbuf];					/* RGB合成      */
+					dat |= gp[*curbuf];					/* テーブルから */
+					*dest++ = bp[*curbuf++] | dat;		/* 拾ってくる   */
+				}
+			}
+			break;
+		case JCS_RGB:	/* RGB	*/
+			while ( cinfo->output_scanline < height ) {
+				int	i;
+				PREPARE;
+				while ( i-- ) {
+					unsigned short	dat;
+					dat = rp[*curbuf++];				/* RGB合成      */
+					dat |= gp[*curbuf++];				/* テーブルから */
+					*dest++ = bp[*curbuf++] | dat;		/* 拾ってくる   */
+				}
+			}
+			break;
+		default:
+			break;
 	}
 	/* 端数を展開 */
 	while ( cinfo->output_scanline < cinfo->output_height ) {
@@ -303,7 +357,9 @@ int main( int argc, char *argv[] )
 				free( linbuf );
 				ret = jerr.num_warnings ? EXIT_WARNING : EXIT_SUCCESS;
 			}
+#if 0
 			jpeg_finish_decompress( &cinfo );	/* 後始末 */
+#endif
 			jpeg_destroy_decompress( &cinfo );	/*        */
 			fclose( infile );
 		}

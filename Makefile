@@ -1,33 +1,35 @@
-#
+#========================================================================
 #	Makefile for vsjpeg.x
-#			Written by Igarashi
-#
+#			Copyright 1998, 2001 Igarashi
+#========================================================================
 
-TARGET = vsjpeg.x
-VERSION = 012
-DATE = 98-09-28
-TIME = 12:00:00
+#	libjpeg.a およびヘッダファイルがインストールされているパス
+#	各自の環境に合わせて変更すること
+JLIBPATH = $(HOME)/bin/iga/libjpeg/jpeg-6b-010303.h01
 
-#libjpegがインストールされているパス
-JLIBPATH = a:/develop/jpeg/jpeg-6b
+CC = egcs
+CFLAGS = -O3 -Wall -I$(JLIBPATH)
+LD = egcs
+LDLIBS = -ldos $(JLIBPATH)/libjpeg.a
+export G2LK = -x
 
-CC = gcc
-CFLAGS = -m68000 -O -I$(JLIBPATH)
-真里子=AB
-GCC_OPTION = WLFIO+
-#GCC_OPTION = WO+
-LD = gcc
-LDFLAGS = 
-HLK = -x
+TARGET		= vsjpeg.x
+VERSION		= 015
+ARCHIVE		= vsjpg$(VERSION)
+ARCFILES	= \
+		Makefile \
+		gentable.c \
+		vsjpeg.c \
+		history.doc \
+		vsjpeg.doc \
+		vsjpg015.hed \
+		$(TARGET)
 
-.PHONY: all bfd arc
+.PHONY: all clean arc
 
 all: $(TARGET)
 
-$(TARGET): vsjpeg.o $(JLIBPATH)/libjpeg.a
-	$(LD) $(LDFLAGS) $^ -ldos -o $@
-
-vsjpeg.c: redtbl.inc greentbl.inc bluetbl.inc
+vsjpeg.o: redtbl.inc greentbl.inc bluetbl.inc
 
 redtbl.inc: gentable.x
 	$< r > $@
@@ -36,20 +38,11 @@ greentbl.inc: gentable.x
 bluetbl.inc: gentable.x
 	$< b > $@
 
-ARCFILES = Makefile webx.bfd webxsrc.bfd gentable.c vsjpeg.c \
-		history.doc vsjpeg.doc vsjpg$(VERSION).hed $(TARGET)
+clean:
+#	-rm *.o *.x *.inc
+	-rm *.o gentable.x *.inc
+
 arc:
-	$(MAKE) bfd
-	touch -d$(DATE) -t$(TIME) $(ARCFILES)
-	-rm vsjpg$(VERSION).Lzh
-	lha a -t vsjpg$(VERSION).Lzh $(ARCFILES)
-
-bfd:
-	-rm webx.bfd
-	strip WebXpression.x
-	touch -d$(DATE) -t$(TIME) WebXpression.x
-	hbdiff orig/WebXpression.x WebXpression.x webx.bfd
-	-rm webxsrc.bfd
-	touch -d$(DATE) -t$(TIME) Image.c
-	hbdiff -S orig/Image.c Image.c webxsrc.bfd
-
+	-rm $(ARCHIVE).zip
+	strip $(TARGET)
+	zip -9 $(ARCHIVE).zip $(ARCFILES)
